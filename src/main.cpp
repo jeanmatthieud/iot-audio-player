@@ -4,6 +4,8 @@
 #include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
+
 #include "Wtv020sd16p.h"
 
 #define PIN_WTV_RESET D1
@@ -17,6 +19,9 @@
 void configModeCallback(WiFiManager *myWiFiManager);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void mqttReconnect();
+void playMusic(unsigned short track);
+void processLeds(unsigned long currentTime);
+void processJsonMessage(JsonObject& root);
 
 //////////
 
@@ -51,23 +56,14 @@ void setup() {
   Serial.println("Setup done");
 }
 
-static unsigned long firstPulse;
 void loop() {
   if (!mqttClient.connected()) {
     mqttReconnect();
   }
   mqttClient.loop();
 
-  firstPulse = millis();
-  analogWrite(PIN_TARDIS_LED, sin(2 * PI / 4000 * millis()/* - firstPulse*/) * 127.5 + 127.5);
-
-  //Plays audio file number 1 during 2 seconds.
-  //delay(5000);
-  //Pauses audio file number 1 during 2 seconds.
-  //wtv020sd16p.pauseVoice();
-  //delay(5000);
-  //Stops current audio file playing.
-  //wtv020sd16p.stopVoice();
+  const unsigned long currentTime = millis();
+  processLeds(currentTime);
 }
 
 void configModeCallback(WiFiManager *myWiFiManager) {
@@ -81,21 +77,24 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
 
-  // Play the sound
-  if(!wtv020sd16p.isBusy()) {
-    Serial.println("Let's play some music !");
-    wtv020sd16p.asyncPlayVoice(9);
-    delay(50);
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& root = jsonBuffer.parseObject((char*)payload);
+  if(root.success()) {
+    root.printTo(Serial);
+    Serial.println();
+
+    processJsonMessage(root);
+  } else {
+    Serial.println("Unable to parse the received JSON");
   }
-  delay(5);
 }
 
 void mqttReconnect() {
+  char topic[30];
+  char chipIdStr[9];
+  itoa(ESP.getChipId(), chipIdStr, 10);
+
   // Loop until we're reconnected
   while (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
@@ -103,9 +102,10 @@ void mqttReconnect() {
     if (mqttClient.connect("jmd")) {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      mqttClient.publish("/outTopic", "hello world");
+      mqttClient.publish("/objects", chipIdStr, true);
       // ... and resubscribe
-      mqttClient.subscribe("inTopic");
+      sprintf(topic, "/%s/%d", "object", ESP.getChipId());
+      mqttClient.subscribe(topic);
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
@@ -114,4 +114,39 @@ void mqttReconnect() {
       delay(5000);
     }
   }
+}
+
+void processLeds(unsigned long currentTime) {
+  static unsigned long firstPulse = currentTime;
+  analogWrite(PIN_TARDIS_LED, sin(2 * PI / 4000 * (currentTime - firstPulse)) * 127.5 + 127.5);
+}
+
+void processJsonMessage(JsonObject& root) {
+  const char* action = root.get<const char*>("action");
+  if(action != NULL) {
+    if(strcmpi(action, "play") == 0) {
+      unsigned short track = root.get<unsigned short>("track");
+      if(track >= 0 && track < 255) {
+        playMusic(track);
+      }
+    } else if(strcmpi(action, "pause") == 0) {
+      wtv020sd16p.pauseVoice();
+    } else if(strcmpi(action, "stop") == 0) {
+      wtv020sd16p.stopVoice();
+    } else if(strcmpi(action, "mute") == 0) {
+      wtv020sd16p.mute();
+    } else if(strcmpi(action, "unmute") == 0) {
+      wtv020sd16p.unmute();
+    }
+  } else {
+    Serial.println("No action specified !");
+  }
+}
+
+void playMusic(unsigned short track) {
+  if(!wtv020sd16p.isBusy()) {
+    wtv020sd16p.asyncPlayVoice(track);
+    delay(100);
+  }
+  delay(5);
 }
