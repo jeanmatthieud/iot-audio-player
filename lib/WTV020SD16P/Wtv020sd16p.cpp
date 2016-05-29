@@ -12,7 +12,7 @@ const unsigned int STOP = 0xFFFF;
 const unsigned int VOLUME_MIN = 0xFFF0;
 const unsigned int VOLUME_MAX = 0xFFF7;
 
-Wtv020sd16p::Wtv020sd16p(int resetPin,int clockPin,int dataPin,int busyPin)
+Wtv020sd16p::Wtv020sd16p(int resetPin, int clockPin, int dataPin, int busyPin, busy_cb busyCallback)
 {
   _resetPin=resetPin;
   _clockPin=clockPin;
@@ -23,6 +23,7 @@ Wtv020sd16p::Wtv020sd16p(int resetPin,int clockPin,int dataPin,int busyPin)
   pinMode(_clockPin, OUTPUT);
   pinMode(_dataPin, OUTPUT);
   pinMode(_busyPin, INPUT);
+//  attachInterrupt(digitalPinToInterrupt(_busyPin), busyCallback, CHANGE);
 }
 
 void Wtv020sd16p::reset(){

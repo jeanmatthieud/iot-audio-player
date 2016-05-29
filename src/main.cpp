@@ -14,6 +14,11 @@
 #define PIN_WTV_BUSY D5
 #define PIN_TARDIS_LED D4
 
+#define API_VERSION "1.1"
+#define API_TOPIC_MESSAGES "messages"
+#define API_TOPIC_ACTIONS "actions"
+#define API_TOPIC_ERRORS "errors"
+
 //////////
 
 void configModeCallback(WiFiManager *myWiFiManager);
@@ -22,38 +27,51 @@ void mqttReconnect();
 void playMusic(unsigned short track);
 void processLeds(unsigned long currentTime);
 void processJsonMessage(JsonObject& root);
+void sendStatus();
+void busyCallback();
 
 //////////
 
-Wtv020sd16p wtv020sd16p(PIN_WTV_RESET, PIN_WTV_CLOCK, PIN_WTV_DATA, PIN_WTV_BUSY);
+Wtv020sd16p wtv020sd16p(PIN_WTV_RESET, PIN_WTV_CLOCK, PIN_WTV_DATA, PIN_WTV_BUSY, busyCallback);
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
-const char mqtt_server[] = "test.mosquitto.org";
-int mqtt_port = 1883; // 1883
+const char mqttHost[] = "test.mosquitto.org";
+int mqttPort = 1883;
+
+char mqttTopicMessages[255];
+char mqttTopicActions[255];
+char mqttTopicErrors[255];
 
 //////////
 
 void setup() {
   Serial.begin(115200);
 
+  // - Pins
   pinMode(PIN_TARDIS_LED, OUTPUT);
 
+  // - Audio module
   wtv020sd16p.reset();
 
-  Serial.println("MQTT server configuration");
-  mqttClient.setServer(mqtt_server, mqtt_port);
+  // - MQTT topics
+  sprintf(mqttTopicMessages, "/v%s/%s/%d", API_VERSION, API_TOPIC_MESSAGES, ESP.getChipId());
+  sprintf(mqttTopicActions, "/v%s/%s/%d", API_VERSION, API_TOPIC_ACTIONS, ESP.getChipId());
+  sprintf(mqttTopicErrors, "/v%s/%s/%d", API_VERSION, API_TOPIC_ERRORS, ESP.getChipId());
+
+  // - MQTT client
+  mqttClient.setServer(mqttHost, mqttPort);
   mqttClient.setCallback(mqttCallback);
 
-  Serial.println("WiFi configuration");
+  // - Wifi
   WiFiManager wifiManager;
   wifiManager.setAPCallback(configModeCallback);
   //wifiManager.setDebugOutput(false);
-  //WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
-  //wifiManager.addParameter(&custom_mqtt_server);
+  //WiFiManagerParameter custom_mqttHost("server", "mqtt server", mqttHost, 40);
+  //wifiManager.addParameter(&custom_mqttHost);
   wifiManager.autoConnect();
 
-  Serial.println("Setup done");
+  Serial.println("End of setup");
 }
 
 void loop() {
@@ -74,7 +92,7 @@ void configModeCallback(WiFiManager *myWiFiManager) {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
+  Serial.print("Message arrived on topic [");
   Serial.print(topic);
   Serial.print("] ");
 
@@ -86,30 +104,25 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
     processJsonMessage(root);
   } else {
-    Serial.println("Unable to parse the received JSON");
+    mqttClient.publish(mqttTopicErrors, "Unable to parse the received JSON");
   }
 }
 
 void mqttReconnect() {
-  char topic[30];
-  char chipIdStr[9];
-  itoa(ESP.getChipId(), chipIdStr, 10);
-
   // Loop until we're reconnected
   while (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
     if (mqttClient.connect("jmd")) {
-      Serial.println("connected");
+      Serial.println(" Connected");
       // Once connected, publish an announcement...
-      mqttClient.publish("/objects", chipIdStr, true);
-      // ... and resubscribe
-      sprintf(topic, "/%s/%d", "object", ESP.getChipId());
-      mqttClient.subscribe(topic);
+      sendStatus();
+      // ... and subscribe to device actions
+      mqttClient.subscribe(mqttTopicActions);
     } else {
-      Serial.print("failed, rc=");
+      Serial.print(" Failed, rc=");
       Serial.print(mqttClient.state());
-      Serial.println(" try again in 5 seconds");
+      Serial.println("; try again in 5 seconds");
       // Wait 5 seconds before retrying
       delay(5000);
     }
@@ -122,24 +135,31 @@ void processLeds(unsigned long currentTime) {
 }
 
 void processJsonMessage(JsonObject& root) {
-  const char* action = root.get<const char*>("action");
-  if(action != NULL) {
-    if(strcmpi(action, "play") == 0) {
-      unsigned short track = root.get<unsigned short>("track");
-      if(track >= 0 && track < 255) {
-        playMusic(track);
+  const char* actionName = root["name"].as<const char*>();
+  if(actionName != NULL) {
+    if(strcmpi(actionName, "play") == 0) {
+      JsonObject& parameters = root["parameters"].asObject();
+      if(parameters != JsonObject::invalid()) {
+        unsigned short track = parameters["track"].as<unsigned short>();
+        if(track >= 0 && track < 255) {
+          playMusic(track);
+          return;
+        }
       }
-    } else if(strcmpi(action, "pause") == 0) {
+      mqttClient.publish(mqttTopicErrors, "Track number missing");
+    } else if(strcmpi(actionName, "pause") == 0) {
       wtv020sd16p.pauseVoice();
-    } else if(strcmpi(action, "stop") == 0) {
+    } else if(strcmpi(actionName, "stop") == 0) {
       wtv020sd16p.stopVoice();
-    } else if(strcmpi(action, "mute") == 0) {
+    } else if(strcmpi(actionName, "mute") == 0) {
       wtv020sd16p.mute();
-    } else if(strcmpi(action, "unmute") == 0) {
+    } else if(strcmpi(actionName, "unmute") == 0) {
       wtv020sd16p.unmute();
+    } else {
+      mqttClient.publish(mqttTopicErrors, "Action name not recognized");
     }
   } else {
-    Serial.println("No action specified !");
+    mqttClient.publish(mqttTopicErrors, "No action name specified");
   }
 }
 
@@ -149,4 +169,21 @@ void playMusic(unsigned short track) {
     delay(100);
   }
   delay(5);
+}
+
+void busyCallback() {
+  Serial.println("Busy state changed");
+  if(mqttClient.connected()) {
+    sendStatus();
+  }
+}
+
+void sendStatus() {
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  root["sensor"] = "audio-output";
+  root["busy"] = wtv020sd16p.isBusy();
+  char buffer[256];
+  root.printTo(buffer, sizeof(buffer));
+  mqttClient.publish(mqttTopicMessages, buffer);
 }

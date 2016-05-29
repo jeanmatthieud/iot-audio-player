@@ -7,10 +7,12 @@
 #ifndef Wtv020sd16p_h
 #define Wtv020sd16p_h
 
+typedef void (*busy_cb)(void);
+
 class Wtv020sd16p
 {
 public:
-  Wtv020sd16p(int resetPin,int clockPin,int dataPin,int busyPin);
+  Wtv020sd16p(int resetPin, int clockPin, int dataPin, int busyPin, busy_cb busyCallback);
   void reset();
   void playVoice(int voiceNumber);
   void asyncPlayVoice(int voiceNumber);
