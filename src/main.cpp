@@ -109,11 +109,14 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 void mqttReconnect() {
+  char mqttDeviceName[255];
+  sprintf(mqttDeviceName, "esp-", ESP.getChipId());
+
   // Loop until we're reconnected
   while (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (mqttClient.connect("jmd")) {
+    if (mqttClient.connect(mqttDeviceName)) {
       Serial.println(" Connected");
       // Once connected, publish an announcement...
       sendStatus();
