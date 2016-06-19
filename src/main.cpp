@@ -14,7 +14,7 @@
 #define PIN_WTV_BUSY D5
 #define PIN_TARDIS_LED D4
 
-#define API_VERSION "1.1"
+#define API_VERSION "1.0"
 #define API_TOPIC_MESSAGES "messages"
 #define API_TOPIC_ACTIONS "actions"
 #define API_TOPIC_ERRORS "errors"
@@ -130,8 +130,8 @@ void mqttReconnect() {
 }
 
 void processLeds(unsigned long currentTime) {
-  static unsigned long firstPulse = currentTime;
-  analogWrite(PIN_TARDIS_LED, sin(2 * PI / 4000 * (currentTime - firstPulse)) * 127.5 + 127.5);
+  static unsigned long pulseBeginTime = currentTime;
+  analogWrite(PIN_TARDIS_LED, sin(2 * PI / 4000 * (currentTime - pulseBeginTime)) * 127.5 + 127.5);
 }
 
 void processJsonMessage(JsonObject& root) {
