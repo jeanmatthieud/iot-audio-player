@@ -20,6 +20,7 @@ public:
   void pauseVoice();
   void mute();
   void unmute();
+  void setVolume(unsigned short value);
   bool isBusy();
 private:
   void sendCommand(unsigned int command);

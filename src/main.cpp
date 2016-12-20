@@ -12,7 +12,10 @@
 #define PIN_WTV_CLOCK D3
 #define PIN_WTV_DATA D2
 #define PIN_WTV_BUSY D5
-#define PIN_TARDIS_LED D4
+#define PIN_TARDIS_LED D8
+
+#define ANALOG_MAX_VALUE 1024
+#define DEFAULT_PULSE_DELAY_MS 10*1000
 
 #define API_VERSION "1.0"
 #define API_TOPIC_MESSAGES "messages"
@@ -36,12 +39,14 @@ Wtv020sd16p wtv020sd16p(PIN_WTV_RESET, PIN_WTV_CLOCK, PIN_WTV_DATA, PIN_WTV_BUSY
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
-const char mqttHost[] = "test.mosquitto.org";
+const char mqttHost[] = "broker.hivemq.com";//"test.mosquitto.org";
 int mqttPort = 1883;
 
 char mqttTopicMessages[255];
 char mqttTopicActions[255];
 char mqttTopicErrors[255];
+
+unsigned long pulseTardisLedsEndMs = 0;
 
 //////////
 
@@ -134,7 +139,14 @@ void mqttReconnect() {
 
 void processLeds(unsigned long currentTime) {
   static unsigned long pulseBeginTime = currentTime;
-  analogWrite(PIN_TARDIS_LED, sin(2 * PI / 4000 * (currentTime - pulseBeginTime)) * 127.5 + 127.5);
+  static bool pulseOn = false;
+  if(pulseTardisLedsEndMs == -1 || currentTime < pulseTardisLedsEndMs) {
+    analogWrite(PIN_TARDIS_LED, sin(2 * PI / 2000 * (currentTime - pulseBeginTime)) * (ANALOG_MAX_VALUE / 2) + (ANALOG_MAX_VALUE / 2));
+    pulseOn = true;
+  } else if(pulseOn) {
+    pulseOn = false;
+    analogWrite(PIN_TARDIS_LED, 0);
+  }
 }
 
 void processJsonMessage(JsonObject& root) {
@@ -158,6 +170,26 @@ void processJsonMessage(JsonObject& root) {
       wtv020sd16p.mute();
     } else if(strcmpi(actionName, "unmute") == 0) {
       wtv020sd16p.unmute();
+    } else if(strcmpi(actionName, "volume") == 0) {
+      JsonObject& parameters = root["parameters"].asObject();
+      if(parameters != JsonObject::invalid()) {
+        unsigned short value = parameters["value"].as<unsigned short>();
+        if(value >= 0 && value < 8) {
+          wtv020sd16p.setVolume(value);
+        }
+      }
+    } else if(strcmpi(actionName, "pulse") == 0) {
+      JsonObject& parameters = root["parameters"].asObject();
+      if(parameters != JsonObject::invalid()) {
+        unsigned int delay = parameters["delay"].as<unsigned int>();
+        if(delay > 0) {
+          pulseTardisLedsEndMs = millis() + delay;
+        } else if(delay == -1) {
+          pulseTardisLedsEndMs = -1;
+        }
+      } else {
+        pulseTardisLedsEndMs = millis() + DEFAULT_PULSE_DELAY_MS;
+      }
     } else {
       mqttClient.publish(mqttTopicErrors, "Action name not recognized");
     }

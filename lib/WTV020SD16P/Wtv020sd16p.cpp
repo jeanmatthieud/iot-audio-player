@@ -40,35 +40,39 @@ void Wtv020sd16p::reset(){
 
 void Wtv020sd16p::playVoice(int voiceNumber){
   sendCommand(voiceNumber);
-  _busyPinState=digitalRead(_busyPin);
-  while(_busyPinState==HIGH){
-    _busyPinState=digitalRead(_busyPin);
+  _busyPinState = digitalRead(_busyPin);
+  while(_busyPinState == HIGH){
+    _busyPinState = digitalRead(_busyPin);
   }
 }
 
-bool Wtv020sd16p::isBusy(){
+bool Wtv020sd16p::isBusy() {
   _busyPinState = digitalRead(_busyPin);
   return _busyPinState == HIGH;
 }
 
-void Wtv020sd16p::asyncPlayVoice(int voiceNumber){
+void Wtv020sd16p::asyncPlayVoice(int voiceNumber) {
   sendCommand(voiceNumber);
 }
 
-void Wtv020sd16p::stopVoice(){
+void Wtv020sd16p::stopVoice() {
   sendCommand(STOP);
 }
 
-void Wtv020sd16p::pauseVoice(){
+void Wtv020sd16p::pauseVoice() {
   sendCommand(PLAY_PAUSE);
 }
 
-void Wtv020sd16p::mute(){
+void Wtv020sd16p::mute() {
   sendCommand(VOLUME_MIN);
 }
 
-void Wtv020sd16p::unmute(){
+void Wtv020sd16p::unmute() {
   sendCommand(VOLUME_MAX);
+}
+
+void Wtv020sd16p::setVolume(unsigned short value) {
+  sendCommand(VOLUME_MIN | value);
 }
 
 void Wtv020sd16p::sendCommand(unsigned int command) {
