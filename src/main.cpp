@@ -5,6 +5,8 @@
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <Ticker.h>
+#include <ESP8266HTTPUpdate.h>
 
 #include "ntp.h"
 #include "Wtv020sd16p.h"
@@ -25,7 +27,13 @@
 #define API_TOPIC_ACTIONS "actions"
 #define API_TOPIC_ERRORS "errors"
 
+#define CHECK_VERSION_INTERVAL 60*30//60*60*4
 #define NTP_SERVER "pool.ntp.org"
+
+#define VERSION_CODE 1
+#define HTTP_UPDATE_HOST "store.iot-experiments.com"
+#define HTTP_UPDATE_PORT 80
+#define HTTP_UPDATE_URL "/ESP/"
 
 //////////
 
@@ -36,7 +44,9 @@ void playMusic(unsigned short track);
 void processLeds(unsigned long currentTime);
 void processJsonMessage(JsonObject& root);
 void sendStatus();
+void checkVersion();
 void busyCallback();
+void checkVersionTickerCallback();
 
 //////////
 
@@ -52,6 +62,25 @@ char mqttTopicErrors[255];
 unsigned long pulseTardisLedsEndMs = 0;
 bool statusChanged = false;
 bool shouldUpdateNtp = false;
+bool shouldCheckVersion = false;
+
+Ticker checkVersionTicker;
+
+//////////
+
+WiFiEventHandler disconnectedEventHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& event) {
+  Serial.println("Station disconnected");
+  shouldUpdateNtp = false;
+  checkVersionTicker.detach();
+});
+
+WiFiEventHandler gotIpEventHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& event) {
+  Serial.println("Station got IP");
+  if(WiFi.getMode() == WIFI_STA) {
+    shouldUpdateNtp = true;
+    checkVersionTicker.attach(CHECK_VERSION_INTERVAL, checkVersionTickerCallback);
+  }
+});
 
 //////////
 
@@ -96,6 +125,11 @@ void loop() {
   if(shouldUpdateNtp) {
     shouldUpdateNtp = false;
     updateNtp(String(NTP_SERVER));
+  }
+
+  if(shouldCheckVersion) {
+    shouldCheckVersion = false;
+    checkVersion();
   }
 
   const unsigned long currentTime = millis();
@@ -235,6 +269,11 @@ void busyCallback() {
   statusChanged = true;
 }
 
+void checkVersionTickerCallback() {
+  Serial.println("Should check version");
+  shouldCheckVersion = true;
+}
+
 void sendStatus() {
   if(!mqttClient.connected()) {
     return;
@@ -250,4 +289,20 @@ void sendStatus() {
   char buffer[512];
   root.printTo(buffer, sizeof(buffer));
   mqttClient.publish(mqttTopicMessages, buffer);
+}
+
+void checkVersion() {
+  t_httpUpdate_return ret = ESPhttpUpdate.update(HTTP_UPDATE_HOST, HTTP_UPDATE_PORT, HTTP_UPDATE_URL + ESP.getChipId(), String(VERSION_CODE));
+  switch(ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.println("[update] Update failed.");
+      Serial.println(ESPhttpUpdate.getLastErrorString());
+    break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("[update] No update.");
+    break;
+    case HTTP_UPDATE_OK:
+      Serial.println("[update] Update ok."); // may not be called; reboot the ESP
+    break;
+  }
 }
