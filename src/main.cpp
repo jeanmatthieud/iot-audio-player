@@ -6,21 +6,26 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
+#include "ntp.h"
 #include "Wtv020sd16p.h"
+#include "DeviceConfiguration.h"
 
 #define PIN_WTV_RESET D1
 #define PIN_WTV_CLOCK D3
 #define PIN_WTV_DATA D2
 #define PIN_WTV_BUSY D5
 #define PIN_TARDIS_LED D8
+#define PIN_PORTAL_MODE D6
 
 #define ANALOG_MAX_VALUE 1024
-#define DEFAULT_PULSE_DELAY_MS 10*1000
+#define DEFAULT_PULSE_DELAY_MS 15*1000
 
 #define API_VERSION "1.0"
 #define API_TOPIC_MESSAGES "messages"
 #define API_TOPIC_ACTIONS "actions"
 #define API_TOPIC_ERRORS "errors"
+
+#define NTP_SERVER "pool.ntp.org"
 
 //////////
 
@@ -36,17 +41,17 @@ void busyCallback();
 //////////
 
 Wtv020sd16p wtv020sd16p(PIN_WTV_RESET, PIN_WTV_CLOCK, PIN_WTV_DATA, PIN_WTV_BUSY, busyCallback);
+DeviceConfiguration deviceConfiguration;
 WiFiClientSecure wifiClient;
 PubSubClient mqttClient(wifiClient);
-
-const char mqttHost[] = "test.mosquitto.org"; //"mqtt.iot-experiments.com";
-int mqttPort = 8883;
 
 char mqttTopicMessages[255];
 char mqttTopicActions[255];
 char mqttTopicErrors[255];
 
 unsigned long pulseTardisLedsEndMs = 0;
+bool statusChanged = false;
+bool shouldUpdateNtp = false;
 
 //////////
 
@@ -64,29 +69,42 @@ void setup() {
   sprintf(mqttTopicActions, "/v%s/%s/%d", API_VERSION, API_TOPIC_ACTIONS, ESP.getChipId());
   sprintf(mqttTopicErrors, "/v%s/%s/%d", API_VERSION, API_TOPIC_ERRORS, ESP.getChipId());
 
-  // - MQTT client
-  mqttClient.setServer(mqttHost, mqttPort);
   mqttClient.setCallback(mqttCallback);
 
-  // - Wifi
-  WiFiManager wifiManager;
-  wifiManager.setAPCallback(configModeCallback);
-  //wifiManager.setDebugOutput(false);
-  //WiFiManagerParameter custom_mqttHost("server", "mqtt server", mqttHost, 40);
-  //wifiManager.addParameter(&custom_mqttHost);
-  wifiManager.autoConnect();
+
+  bool resetConfig = false;
+  /*if(digitalRead(PIN_PORTAL_MODE) == HIGH) {
+    Serial.println("Config button pressed during power-up : will reset configuration");
+    resetConfig = true;
+  }*/
+  deviceConfiguration.startWifiConfiguration(true, resetConfig);
 
   Serial.println("End of setup");
 }
 
 void loop() {
+  /*if (digitalRead(PIN_PORTAL_MODE) == HIGH) {
+    Serial.println("Config button pressed");
+    deviceConfiguration.startWifiConfiguration(false);
+  }*/
+
   if (!mqttClient.connected()) {
     mqttReconnect();
   }
   mqttClient.loop();
 
+  if(shouldUpdateNtp) {
+    shouldUpdateNtp = false;
+    updateNtp(String(NTP_SERVER));
+  }
+
   const unsigned long currentTime = millis();
   processLeds(currentTime);
+
+  if(statusChanged) {
+    statusChanged = false;
+    sendStatus();
+  }
 }
 
 void configModeCallback(WiFiManager *myWiFiManager) {
@@ -108,12 +126,14 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     Serial.println();
 
     processJsonMessage(root);
+    statusChanged = true;
   } else {
     mqttClient.publish(mqttTopicErrors, "Unable to parse the received JSON");
   }
 }
 
 void mqttReconnect() {
+  mqttClient.setServer(deviceConfiguration.getMqttHost().c_str(), deviceConfiguration.getMqttPort());
   char mqttDeviceName[255];
   sprintf(mqttDeviceName, "esp-", ESP.getChipId());
 
@@ -124,7 +144,8 @@ void mqttReconnect() {
     if (mqttClient.connect(mqttDeviceName)) {
       Serial.println(" Connected");
       // Once connected, publish an announcement...
-      sendStatus();
+      statusChanged = true;
+      shouldUpdateNtp = true;
       // ... and subscribe to device actions
       mqttClient.subscribe(mqttTopicActions);
     } else {
@@ -145,6 +166,7 @@ void processLeds(unsigned long currentTime) {
     pulseOn = true;
   } else if(pulseOn) {
     pulseOn = false;
+    statusChanged = true;
     analogWrite(PIN_TARDIS_LED, 0);
   }
 }
@@ -181,7 +203,7 @@ void processJsonMessage(JsonObject& root) {
     } else if(strcmpi(actionName, "pulse") == 0) {
       JsonObject& parameters = root["parameters"].asObject();
       if(parameters != JsonObject::invalid()) {
-        unsigned int duration = parameters["duration"].as<unsigned int>();
+        int duration = parameters["duration"].as<int>();
         if(duration > 0) {
           pulseTardisLedsEndMs = millis() + duration;
         } else if(duration == -1) {
@@ -210,7 +232,7 @@ void playMusic(unsigned short track) {
 
 void busyCallback() {
   Serial.println("Busy state changed");
-  sendStatus();
+  statusChanged = true;
 }
 
 void sendStatus() {
@@ -221,10 +243,10 @@ void sendStatus() {
   StaticJsonBuffer<200> jsonBuffer;
   JsonObject& root = jsonBuffer.createObject();
   root["type"] = "tardis";
-  root["name"] = "Tardis de Gauthier"; // TODO : param at wifi config
-  root["time"] = millis();
-  root["audio"] = wtv020sd16p.isBusy() ? "on" : "off";
-  root["pulse"] = pulseTardisLedsEndMs != -1 && pulseTardisLedsEndMs < millis() ? 0 : pulseTardisLedsEndMs;
+  root["name"] = deviceConfiguration.getName();
+  root["time"] = getCurrentTimestamp();
+  root["audio"] = wtv020sd16p.isBusy();
+  root["pulse"] = pulseTardisLedsEndMs == -1 || pulseTardisLedsEndMs > millis();
   char buffer[512];
   root.printTo(buffer, sizeof(buffer));
   mqttClient.publish(mqttTopicMessages, buffer);
