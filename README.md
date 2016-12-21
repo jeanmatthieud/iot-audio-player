@@ -10,13 +10,13 @@ Expressif
 # API
 ## Messages
 Endpoint: `/v1.0/messages/[chip-id]`
-Example of received message: `{"sensor": "audio-output", "busy": true}`
+Example of received message: `{"sensor": "tardis", "audio": on|off, "pulse": endMs}`
 
 ## Actions
 Endpoint: `/v1.0/actions/[chip-id]`
 
 ### Play
-Example: `{ "name": "play", "parameters": { "track": 0 } }`, `{ "name": "play", "parameters": { "track": 1 } }`
+Example: `{ "name": "play", "params": { "track": 0 } }`, `{ "name": "play", "params": { "track": 1 } }`
 
 ### Pause
 Send: `{ "name": "pause" }`
@@ -28,7 +28,7 @@ Send: `{ "name": "mute" }`
 Send: `{ "name": "unmute"}`
 
 ## Volume
-Send: `{ "name": "volume", "parameters": { "value": 0 }}` to `{ "name": "volume", "parameters": { "value": 7 }}`
+Send: `{ "name": "volume", "params": { "value": 0 }}` to `{ "name": "volume", "parameters": { "value": 7 }}`
 
 ## Pulse
 Send: `{ "name": "pulse", "parameters": { "duration": 2000 }}`

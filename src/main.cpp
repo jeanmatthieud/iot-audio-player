@@ -153,7 +153,7 @@ void processJsonMessage(JsonObject& root) {
   const char* actionName = root["name"].as<const char*>();
   if(actionName != NULL) {
     if(strcmpi(actionName, "play") == 0) {
-      JsonObject& parameters = root["parameters"].asObject();
+      JsonObject& parameters = root["params"].asObject();
       if(parameters != JsonObject::invalid()) {
         unsigned short track = parameters["track"].as<unsigned short>();
         if(track >= 0 && track < 255) {
@@ -210,17 +210,22 @@ void playMusic(unsigned short track) {
 
 void busyCallback() {
   Serial.println("Busy state changed");
-  if(mqttClient.connected()) {
-    sendStatus();
-  }
+  sendStatus();
 }
 
 void sendStatus() {
+  if(!mqttClient.connected()) {
+    return;
+  }
+
   StaticJsonBuffer<200> jsonBuffer;
   JsonObject& root = jsonBuffer.createObject();
-  root["sensor"] = "audio-output";
-  root["busy"] = wtv020sd16p.isBusy();
-  char buffer[256];
+  root["type"] = "tardis";
+  root["name"] = "Tardis de Gauthier"; // TODO : param at wifi config
+  root["time"] = millis();
+  root["audio"] = wtv020sd16p.isBusy() ? "on" : "off";
+  root["pulse"] = pulseTardisLedsEndMs != -1 && pulseTardisLedsEndMs < millis() ? 0 : pulseTardisLedsEndMs;
+  char buffer[512];
   root.printTo(buffer, sizeof(buffer));
   mqttClient.publish(mqttTopicMessages, buffer);
 }
