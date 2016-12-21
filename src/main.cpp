@@ -36,11 +36,11 @@ void busyCallback();
 //////////
 
 Wtv020sd16p wtv020sd16p(PIN_WTV_RESET, PIN_WTV_CLOCK, PIN_WTV_DATA, PIN_WTV_BUSY, busyCallback);
-WiFiClient wifiClient;
+WiFiClientSecure wifiClient;
 PubSubClient mqttClient(wifiClient);
 
-const char mqttHost[] = "broker.hivemq.com";//"test.mosquitto.org";
-int mqttPort = 1883;
+const char mqttHost[] = "test.mosquitto.org"; //"mqtt.iot-experiments.com";
+int mqttPort = 8883;
 
 char mqttTopicMessages[255];
 char mqttTopicActions[255];
@@ -181,11 +181,13 @@ void processJsonMessage(JsonObject& root) {
     } else if(strcmpi(actionName, "pulse") == 0) {
       JsonObject& parameters = root["parameters"].asObject();
       if(parameters != JsonObject::invalid()) {
-        unsigned int delay = parameters["delay"].as<unsigned int>();
-        if(delay > 0) {
-          pulseTardisLedsEndMs = millis() + delay;
-        } else if(delay == -1) {
+        unsigned int duration = parameters["duration"].as<unsigned int>();
+        if(duration > 0) {
+          pulseTardisLedsEndMs = millis() + duration;
+        } else if(duration == -1) {
           pulseTardisLedsEndMs = -1;
+        } else if(duration == 0) {
+         pulseTardisLedsEndMs = 0;
         }
       } else {
         pulseTardisLedsEndMs = millis() + DEFAULT_PULSE_DELAY_MS;

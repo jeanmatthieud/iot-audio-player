@@ -30,5 +30,12 @@ Send: `{ "name": "unmute"}`
 ## Volume
 Send: `{ "name": "volume", "parameters": { "value": 0 }}` to `{ "name": "volume", "parameters": { "value": 7 }}`
 
+## Pulse
+Send: `{ "name": "pulse", "parameters": { "duration": 2000 }}`
+
+Duration is in ms :
+
+* 
+
 ## Errors
 Endpoint: `/v1.0/errors/[chip-id]`
