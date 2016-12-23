@@ -17,9 +17,11 @@ FunctorSaveConfigCallback* functor = NULL;
 DeviceConfiguration::DeviceConfiguration() {
   functor = new FunctorSaveConfigCallback(this);
 
-  sprintf(mqttHost, "%s", "test.mosquitto.org");//"mqtt.iot-experiments.com");
+  sprintf(mqttHost, "%s", "mqtt.iot-experiments.com");
   sprintf(mqttPort, "%d", 8883);
   sprintf(name, "%s", "Mon Tardis");
+  sprintf(mqttLogin, "%s", (String("ESP") + ESP.getChipId()).c_str());
+  sprintf(mqttPassword, "%s", "Tardis2017");
 }
 
 DeviceConfiguration::~DeviceConfiguration() {
@@ -33,6 +35,8 @@ void DeviceConfiguration::startWifiConfiguration(bool autoConnect, bool resetCon
   // id/name placeholder/prompt default length
   WiFiManagerParameter custom_mqtt_host("host", "MQTT host", this->mqttHost, FIELD_HOST_LENGTH);
   WiFiManagerParameter custom_mqtt_port("port", "MQTT port", this->mqttPort, FIELD_PORT_LENGTH);
+  WiFiManagerParameter custom_mqtt_login("login", "MQTT login", this->mqttLogin, FIELD_LOGIN_LENGTH);
+  WiFiManagerParameter custom_mqtt_password("password", "MQTT password", this->mqttPassword, FIELD_PASSWORD_LENGTH);
   WiFiManagerParameter custom_name("name", "Nom", this->name, FIELD_NAME_LENGTH);
 
   WiFiManager wifiManager;
@@ -40,6 +44,8 @@ void DeviceConfiguration::startWifiConfiguration(bool autoConnect, bool resetCon
   //wifiManager.setSTAStaticIPConfig(IPAddress(10,0,1,99), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
   wifiManager.addParameter(&custom_mqtt_host);
   wifiManager.addParameter(&custom_mqtt_port);
+  wifiManager.addParameter(&custom_mqtt_login);
+  wifiManager.addParameter(&custom_mqtt_password);
   wifiManager.addParameter(&custom_name);
   // Reset settings for testing
   if(resetConfig) {
@@ -63,6 +69,8 @@ void DeviceConfiguration::startWifiConfiguration(bool autoConnect, bool resetCon
 
   strcpy(this->mqttHost, custom_mqtt_host.getValue());
   strcpy(this->mqttPort, custom_mqtt_port.getValue());
+  strcpy(this->mqttLogin, custom_mqtt_login.getValue());
+  strcpy(this->mqttPassword, custom_mqtt_password.getValue());
   strcpy(this->name, custom_name.getValue());
 
   //if (this->shouldSaveConfig) {
@@ -76,7 +84,7 @@ void DeviceConfiguration::startWifiConfiguration(bool autoConnect, bool resetCon
 
 void DeviceConfiguration::readConfigFile(bool resetConfig) {
   if(resetConfig) {
-    // Clean FS
+    Serial.println("Format FS...");
     SPIFFS.format();
   }
 
@@ -100,6 +108,8 @@ void DeviceConfiguration::readConfigFile(bool resetConfig) {
           Serial.println("\nparsed json");
           strcpy(this->mqttHost, json["mqtt_host"]);
           strcpy(this->mqttPort, json["mqtt_port"]);
+          strcpy(this->mqttLogin, json["mqtt_login"]);
+          strcpy(this->mqttPassword, json["mqtt_password"]);
           strcpy(this->name, json["name"]);
         } else {
           Serial.println("Failed to load json config");
@@ -117,6 +127,8 @@ void DeviceConfiguration::saveConfigFile() {
   JsonObject& json = jsonBuffer.createObject();
   json["mqtt_host"] = this->mqttHost;
   json["mqtt_port"] = this->mqttPort;
+  json["mqtt_login"] = this->mqttLogin;
+  json["mqtt_password"] = this->mqttPassword;
   json["name"] = this->name;
 
   File configFile = SPIFFS.open("/config.json", "w");

@@ -7,6 +7,7 @@
 #include <ArduinoJson.h>
 #include <Ticker.h>
 #include <ESP8266HTTPUpdate.h>
+#include <FS.h>
 
 #include "ntp.h"
 #include "Wtv020sd16p.h"
@@ -49,7 +50,6 @@ void busyCallback();
 void checkVersionTickerCallback();
 
 //////////
-
 Wtv020sd16p wtv020sd16p(PIN_WTV_RESET, PIN_WTV_CLOCK, PIN_WTV_DATA, PIN_WTV_BUSY, busyCallback);
 DeviceConfiguration deviceConfiguration;
 WiFiClientSecure wifiClient;
@@ -89,36 +89,41 @@ void setup() {
 
   // - Pins
   pinMode(PIN_TARDIS_LED, OUTPUT);
+  pinMode(PIN_PORTAL_MODE, INPUT_PULLUP);
+
+  analogWrite(PIN_TARDIS_LED, ANALOG_MAX_VALUE / 3);
 
   // - Audio module
   wtv020sd16p.reset();
 
   // - MQTT topics
-  sprintf(mqttTopicMessages, "/v%s/%s/%d", API_VERSION, API_TOPIC_MESSAGES, ESP.getChipId());
-  sprintf(mqttTopicActions, "/v%s/%s/%d", API_VERSION, API_TOPIC_ACTIONS, ESP.getChipId());
-  sprintf(mqttTopicErrors, "/v%s/%s/%d", API_VERSION, API_TOPIC_ERRORS, ESP.getChipId());
+  sprintf(mqttTopicMessages, "/v%s/%s/ESP%d", API_VERSION, API_TOPIC_MESSAGES, ESP.getChipId());
+  sprintf(mqttTopicActions, "/v%s/%s/ESP%d", API_VERSION, API_TOPIC_ACTIONS, ESP.getChipId());
+  sprintf(mqttTopicErrors, "/v%s/%s/ESP%d", API_VERSION, API_TOPIC_ERRORS, ESP.getChipId());
 
   mqttClient.setCallback(mqttCallback);
 
-
   bool resetConfig = false;
-  /*if(digitalRead(PIN_PORTAL_MODE) == HIGH) {
+  if(digitalRead(PIN_PORTAL_MODE) == LOW) {
     Serial.println("Config button pressed during power-up : will reset configuration");
-    resetConfig = true;
-  }*/
+    //resetConfig = true;
+  }
   deviceConfiguration.startWifiConfiguration(true, resetConfig);
 
+  analogWrite(PIN_TARDIS_LED, 0);
   Serial.println("End of setup");
 }
 
 void loop() {
-  /*if (digitalRead(PIN_PORTAL_MODE) == HIGH) {
+  if (digitalRead(PIN_PORTAL_MODE) == LOW) {
     Serial.println("Config button pressed");
     deviceConfiguration.startWifiConfiguration(false);
-  }*/
+  }
 
   if (!mqttClient.connected()) {
+    analogWrite(PIN_TARDIS_LED, ANALOG_MAX_VALUE / 2);
     mqttReconnect();
+    analogWrite(PIN_TARDIS_LED, 0);
   }
   mqttClient.loop();
 
@@ -167,19 +172,19 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 void mqttReconnect() {
-  mqttClient.setServer(deviceConfiguration.getMqttHost().c_str(), deviceConfiguration.getMqttPort());
-  char mqttDeviceName[255];
-  sprintf(mqttDeviceName, "esp-", ESP.getChipId());
+  char mqttHostCharArray[deviceConfiguration.getMqttHost().length() + 1];
+  deviceConfiguration.getMqttHost().toCharArray(mqttHostCharArray, deviceConfiguration.getMqttHost().length() + 1);
+
+  mqttClient.setServer(mqttHostCharArray, deviceConfiguration.getMqttPort());
 
   // Loop until we're reconnected
-  while (!mqttClient.connected()) {
+  if (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (mqttClient.connect(mqttDeviceName)) {
+    if (mqttClient.connect(deviceConfiguration.getMqttLogin().c_str(), deviceConfiguration.getMqttLogin().c_str(), deviceConfiguration.getMqttPassword().c_str())) {
       Serial.println(" Connected");
       // Once connected, publish an announcement...
       statusChanged = true;
-      shouldUpdateNtp = true;
       // ... and subscribe to device actions
       mqttClient.subscribe(mqttTopicActions);
     } else {
@@ -227,7 +232,7 @@ void processJsonMessage(JsonObject& root) {
     } else if(strcmpi(actionName, "unmute") == 0) {
       wtv020sd16p.unmute();
     } else if(strcmpi(actionName, "volume") == 0) {
-      JsonObject& parameters = root["parameters"].asObject();
+      JsonObject& parameters = root["params"].asObject();
       if(parameters != JsonObject::invalid()) {
         unsigned short value = parameters["value"].as<unsigned short>();
         if(value >= 0 && value < 8) {
@@ -235,7 +240,7 @@ void processJsonMessage(JsonObject& root) {
         }
       }
     } else if(strcmpi(actionName, "pulse") == 0) {
-      JsonObject& parameters = root["parameters"].asObject();
+      JsonObject& parameters = root["params"].asObject();
       if(parameters != JsonObject::invalid()) {
         int duration = parameters["duration"].as<int>();
         if(duration > 0) {
