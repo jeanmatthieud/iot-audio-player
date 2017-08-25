@@ -33,9 +33,7 @@ Send: `{ "name": "volume", "params": { "value": 0 }}` to `{ "name": "volume", "p
 ## Pulse
 Send: `{ "name": "pulse", "parameters": { "duration": 2000 }}`
 
-Duration is in ms :
-
-* 
+Duration is in ms 
 
 ## Errors
 Endpoint: `/v1.0/errors/[chip-id]`
